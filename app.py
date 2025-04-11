@@ -1,4 +1,25 @@
 import streamlit as st
+import paho.mqtt.client as mqtt
+import json
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+import time
+import os
+import ssl
+from database import db
+from utils import format_power, get_status_color
+from welcome import show_landing_page
+
+# MQTT Configuration (Replace with your HiveMQ details)
+MQTT_BROKER = "4ad81ef75d944ea19791360d57b55735.s1.eu.hivemq.cloud"
+MQTT_PORT = 8883
+MQTT_TOPIC = "solar/pzem-017"
+MQTT_USER = "hivemq.webclient.1744393295548"
+MQTT_PASS = "9BD8C42AbvfdrsFI,!*<"
+
 # Configure the page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
     page_title="Solar-Wind Hybrid Monitor",
@@ -7,25 +28,86 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Initialize session state for MQTT data
+if "mqtt_data" not in st.session_state:
+    st.session_state.mqtt_data = {
+        "solar_power": 0,
+        "voltage": 0,
+        "current": 0,
+        "energy": 0,
+        "environmental": {
+            "irradiance": 0,
+            "temperature": 25,
+            "wind_speed": 0
+        },
+        "battery": {
+            "soc": 50,
+            "voltage": 12.6,
+            "current": 0,
+            "temperature": 25,
+            "cycle_count": 10
+        },
+        "load": 0,
+        "total_generation": 0,
+        "net_power": 0
+    }
+if "historical_data" not in st.session_state:
+    st.session_state.historical_data = pd.DataFrame(columns=["timestamp", "power", "voltage", "current"])
+
+# MQTT Callback Function
+def on_message(client, userdata, msg):
+    try:
+        payload = json.loads(msg.payload.decode())
+        new_data = {
+            "solar_power": payload["data"]["power"],
+            "voltage": payload["data"]["voltage"],
+            "current": payload["data"]["current"],
+            "energy": payload["data"]["energy"],
+            "environmental": {
+                "irradiance": payload["data"].get("irradiance", 800),
+                "temperature": payload["data"].get("temperature", 25)
+            },
+            "load": payload["data"]["power"] * 0.7,  # Example calculation
+            "total_generation": payload["data"]["power"],
+            "net_power": payload["data"]["power"] * 0.3
+        }
+        
+        # Update session state
+        st.session_state.mqtt_data = new_data
+        
+        # Update historical data
+        new_row = {
+            "timestamp": datetime.now(),
+            "power": payload["data"]["power"],
+            "voltage": payload["data"]["voltage"],
+            "current": payload["data"]["current"]
+        }
+        st.session_state.historical_data = pd.concat([
+            st.session_state.historical_data,
+            pd.DataFrame([new_row])
+        ]).tail(1000)  # Keep last 1000 readings
+        
+    except Exception as e:
+        st.error(f"MQTT Data Processing Error: {str(e)}")
+
+# Initialize MQTT Client
+client = mqtt.Client()
+client.username_pw_set(MQTT_USER, MQTT_PASS)
+client.tls_set(
+    ca_certs=None,
+    cert_reqs=ssl.CERT_REQUIRED,
+    tls_version=ssl.PROTOCOL_TLS
+)
+client.on_message = on_message
+client.connect(MQTT_BROKER, MQTT_PORT, 60)
+client.subscribe(MQTT_TOPIC, qos=1)
+client.loop_start()
+
 # Configure server settings
 import os
 if __name__ == '__main__':
     os.environ['STREAMLIT_SERVER_PORT'] = '5000'
     os.environ['STREAMLIT_SERVER_ADDRESS'] = 'localhost'
-
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import time
-import os
-
-# Import database and utilities
-from database import db
-from data_generator import data_generator
-from utils import format_power, get_status_color
-from welcome import show_landing_page
 
 # Initialize session state for theme if it doesn't exist
 if "theme" not in st.session_state:
@@ -48,8 +130,6 @@ except Exception as e:
     st.stop()
 
 # Theme switching functionality
-
-# Add theme toggle in sidebar
 with st.sidebar:
     st.title("Solar-Wind Monitor")
     
@@ -74,10 +154,6 @@ with st.sidebar:
     st.divider()
     st.caption("© 2025 Zimbabwe Renewable Energy")
 
-# Function to refresh data
-def refresh_data():
-    return data_generator.generate_current_data()
-
 # Check if user is logged in, if not, show the landing page
 if "user" not in st.session_state or st.session_state.user is None:
     show_landing_page()
@@ -92,121 +168,9 @@ refresh_interval = st.sidebar.slider("Auto-refresh interval (sec)", 5, 60, 10)
 # Auto-refresh checkbox
 auto_refresh = st.sidebar.checkbox("Auto-refresh data", value=True)
 
-# Manual refresh button
-if st.sidebar.button("Refresh Now"):
-    st.session_state.last_refresh_time = datetime.now()
-    st.session_state.current_data = refresh_data()
-
-# Check if we need to refresh based on the time elapsed
-if "last_refresh_time" not in st.session_state:
-    st.session_state.last_refresh_time = datetime.now()
-    st.session_state.current_data = refresh_data()
-else:
-    elapsed = (datetime.now() - st.session_state.last_refresh_time).total_seconds()
-    if auto_refresh and elapsed >= refresh_interval:
-        st.session_state.last_refresh_time = datetime.now()
-        st.session_state.current_data = refresh_data()
-
-# Get current data
-current_data = st.session_state.current_data
-last_refresh = st.session_state.last_refresh_time
-
-# Display last refresh time
-st.caption(f"Last updated: {last_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
-
-# Get system anomalies
-try:
-    anomaly_data = data_generator.get_system_anomalies("day")
-    anomaly_summary = anomaly_data["summary"]
-    anomalies = anomaly_data["anomalies"]
-    
-    # If we have anomalies, show them in an expander
-    if anomaly_summary["total"] > 0:
-        system_status = "Critical" if anomaly_summary["severe"] > 0 else \
-                        "Warning" if anomaly_summary["moderate"] > 0 else \
-                        "Caution" if anomaly_summary["mild"] > 0 else "Normal"
-        
-        status_icon = "🔴" if system_status == "Critical" else \
-                      "🟠" if system_status == "Warning" else \
-                      "🟡" if system_status == "Caution" else "🟢"
-        
-        with st.expander(f"{status_icon} {system_status}: Anomaly Alerts ({anomaly_summary['total']})", expanded=True):
-            # Add a quick summary
-            st.markdown(f"""
-            <div style="margin-bottom: 10px;">
-                <span style="font-weight: bold; color: red;">{anomaly_summary['severe']} severe</span> | 
-                <span style="font-weight: bold; color: orange;">{anomaly_summary['moderate']} moderate</span> | 
-                <span style="font-weight: bold; color: #CCB800;">{anomaly_summary['mild']} mild</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Show the most severe anomalies first
-            shown_anomalies = 0
-            max_anomalies_to_show = 3
-            
-            # Show severe anomalies
-            for category, anomaly_list in anomalies.items():
-                if shown_anomalies >= max_anomalies_to_show:
-                    break
-                    
-                severe_anomalies = [a for a in anomaly_list if a["severity"] == "severe"]
-                for anomaly in severe_anomalies:
-                    if shown_anomalies >= max_anomalies_to_show:
-                        break
-                        
-                    st.error(f"⚠️ **{category.replace('_', ' ').title()}**: {anomaly['message']}")
-                    shown_anomalies += 1
-            
-            # Show moderate anomalies if we have space
-            if shown_anomalies < max_anomalies_to_show:
-                for category, anomaly_list in anomalies.items():
-                    if shown_anomalies >= max_anomalies_to_show:
-                        break
-                        
-                    moderate_anomalies = [a for a in anomaly_list if a["severity"] == "moderate"]
-                    for anomaly in moderate_anomalies:
-                        if shown_anomalies >= max_anomalies_to_show:
-                            break
-                            
-                        st.warning(f"⚠️ **{category.replace('_', ' ').title()}**: {anomaly['message']}")
-                        shown_anomalies += 1
-            
-            # If we still have space, show mild anomalies (but just count them by category)
-            if shown_anomalies < max_anomalies_to_show:
-                mild_categories = {}
-                for category, anomaly_list in anomalies.items():
-                    mild_anomalies = [a for a in anomaly_list if a["severity"] == "mild"]
-                    if mild_anomalies:
-                        if category not in mild_categories:
-                            mild_categories[category] = 0
-                        mild_categories[category] += len(mild_anomalies)
-                
-                for category, count in mild_categories.items():
-                    if shown_anomalies >= max_anomalies_to_show:
-                        break
-                        
-                    st.info(f"ℹ️ **{category.replace('_', ' ').title()}**: {count} mild anomalies detected")
-                    shown_anomalies += 1
-            
-            # If there are more anomalies than we can show, add a link to the anomaly page
-            if anomaly_summary["total"] > max_anomalies_to_show:
-                st.markdown(f"[View all {anomaly_summary['total']} anomalies on the Anomaly Detection page →](/Anomaly_Detection)")
-except Exception as e:
-    # Fall back to the original alerts if anomaly detection fails
-    st.error(f"Error detecting anomalies: {str(e)}")
-    
-    # Display original alert messages if any
-    alerts = current_data.get("alerts", [])
-    if alerts:
-        with st.expander(f"System Alerts ({len(alerts)})", expanded=True):
-            for alert in alerts:
-                severity = alert["severity"]
-                if severity == "high":
-                    st.error(f"⚠️ {alert['component'].title()}: {alert['message']}")
-                elif severity == "medium":
-                    st.warning(f"⚠️ {alert['component'].title()}: {alert['message']}")
-                else:
-                    st.info(f"ℹ️ {alert['component'].title()}: {alert['message']}")
+# Display last update time
+if "last_update" in st.session_state:
+    st.caption(f"Last updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Create main sections using columns
 col1, col2, col3 = st.columns([1, 1, 1])
@@ -216,7 +180,7 @@ with col1:
     st.subheader("Power Generation")
     
     # Solar power card
-    solar_power = current_data["solar_power"]
+    solar_power = st.session_state.mqtt_data["solar_power"]
     solar_color = get_status_color(solar_power, {"green": (2, float('inf')), "yellow": (0.5, 2), "red": (0, 0.5)})
     
     st.markdown(
@@ -226,14 +190,14 @@ with col1:
             <h2 style="margin:0; color: {'green' if solar_color == 'green' else 'orange' if solar_color == 'yellow' else 'red'};">
                 {format_power(solar_power)}
             </h2>
-            <p style="margin:0;">Irradiance: {current_data['environmental']['irradiance']:.1f} W/m²</p>
+            <p style="margin:0;">Irradiance: {st.session_state.mqtt_data['environmental']['irradiance']:.1f} W/m²</p>
         </div>
         """, 
         unsafe_allow_html=True
     )
     
-    # Wind power card
-    wind_power = current_data["wind_power"]
+    # Wind power card (placeholder - modify if you have wind data)
+    wind_power = st.session_state.mqtt_data.get("wind_power", 0)
     wind_color = get_status_color(wind_power, {"green": (2, float('inf')), "yellow": (0.5, 2), "red": (0, 0.5)})
     
     st.markdown(
@@ -243,14 +207,14 @@ with col1:
             <h2 style="margin:0; color: {'green' if wind_color == 'green' else 'orange' if wind_color == 'yellow' else 'red'};">
                 {format_power(wind_power)}
             </h2>
-            <p style="margin:0;">Wind Speed: {current_data['environmental']['wind_speed']:.1f} m/s</p>
+            <p style="margin:0;">Wind Speed: {st.session_state.mqtt_data['environmental']['wind_speed']:.1f} m/s</p>
         </div>
         """, 
         unsafe_allow_html=True
     )
     
     # Total generation card
-    total_power = current_data["total_generation"]
+    total_power = st.session_state.mqtt_data["total_generation"]
     total_color = get_status_color(total_power, {"green": (4, float('inf')), "yellow": (1, 4), "red": (0, 1)})
     
     st.markdown(
@@ -260,7 +224,7 @@ with col1:
             <h2 style="margin:0; color: {'green' if total_color == 'green' else 'orange' if total_color == 'yellow' else 'red'};">
                 {format_power(total_power)}
             </h2>
-            <p style="margin:0;">Temperature: {current_data['environmental']['temperature']:.1f}°C</p>
+            <p style="margin:0;">Temperature: {st.session_state.mqtt_data['environmental']['temperature']:.1f}°C</p>
         </div>
         """, 
         unsafe_allow_html=True
@@ -271,7 +235,7 @@ with col2:
     st.subheader("Battery Status")
     
     # Battery state of charge
-    battery = current_data["battery"]
+    battery = st.session_state.mqtt_data["battery"]
     soc = battery["soc"]
     soc_color = get_status_color(soc, {"green": (60, 100), "yellow": (20, 60), "red": (0, 20)})
     
@@ -328,7 +292,7 @@ with col3:
     st.subheader("Load & Energy Balance")
     
     # Current load
-    load = current_data["load"]
+    load = st.session_state.mqtt_data["load"]
     load_color = get_status_color(load, {"green": (0, 3), "yellow": (3, 6), "red": (6, float('inf'))})
     
     st.markdown(
@@ -344,7 +308,7 @@ with col3:
     )
     
     # Net power (generation - load)
-    net_power = current_data["net_power"]
+    net_power = st.session_state.mqtt_data["net_power"]
     net_status = "Surplus" if net_power > 0 else "Deficit"
     net_color = "green" if net_power > 0 else "red"
     
@@ -364,12 +328,9 @@ with col3:
     # Energy contribution
     st.subheader("Energy Source")
     
-    # Calculate energy summary
-    energy_summary = data_generator.get_energy_summary()
-    
-    # Create pie chart for energy sources
+    # Create pie chart for energy sources (modify if you have wind data)
     fig = px.pie(
-        values=[energy_summary["solar_percentage"], energy_summary["wind_percentage"]],
+        values=[100, 0],  # 100% solar, 0% wind (adjust as needed)
         names=["Solar", "Wind"],
         color_discrete_sequence=["#FFD700", "#4682B4"],
         hole=0.4
@@ -389,37 +350,24 @@ with col3:
 # Section 4: Real-time generation chart
 st.subheader("Live Power Generation")
 
-# Get historical data
-historical_data = data_generator.get_historical_data(timeframe="day")
-
-if not historical_data.empty:
+if not st.session_state.historical_data.empty:
     # Create time series plot for power generation
     fig = go.Figure()
     
     # Add solar power line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
-        y=historical_data["solar_power"],
+        x=st.session_state.historical_data["timestamp"],
+        y=st.session_state.historical_data["power"],
         name="Solar",
         line=dict(color="#FFD700", width=2),
         fill="tozeroy",
         fillcolor="rgba(255, 215, 0, 0.2)"
     ))
     
-    # Add wind power line
+    # Add load line (calculated as 70% of power)
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
-        y=historical_data["wind_power"],
-        name="Wind",
-        line=dict(color="#4682B4", width=2),
-        fill="tozeroy",
-        fillcolor="rgba(70, 130, 180, 0.2)"
-    ))
-    
-    # Add load line
-    fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
-        y=historical_data["load"],
+        x=st.session_state.historical_data["timestamp"],
+        y=st.session_state.historical_data["power"] * 0.7,
         name="Load",
         line=dict(color="#FF6347", width=2, dash="dot")
     ))
@@ -428,7 +376,7 @@ if not historical_data.empty:
     fig.update_layout(
         height=400,
         xaxis_title="Time",
-        yaxis_title="Power (kW)",
+        yaxis_title="Power (W)",
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=60, r=20, t=30, b=60),
@@ -452,7 +400,7 @@ if not historical_data.empty:
     
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("Collecting data... Chart will appear soon.")
+    st.info("Waiting for data... Chart will appear soon.")
 
 # Footer information
 st.divider()
