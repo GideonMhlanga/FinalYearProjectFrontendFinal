@@ -8,7 +8,9 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
 import os
+from dotenv import load_dotenv
 import ssl
+import requests
 from database import db
 from utils import format_power, get_status_color
 from welcome import show_landing_page
@@ -19,6 +21,28 @@ MQTT_PORT = 8883
 MQTT_TOPIC = "solar/pzem-017"
 MQTT_USER = "hivemq.webclient.1744393295548"
 MQTT_PASS = "9BD8C42AbvfdrsFI,!*<"
+
+# Load the API key from the .env file
+load_dotenv()
+key = os.getenv("SOLCAST_API_KEY")
+
+latitude = -20.148951
+longitude = 28.533104
+start = "2025-01-01T01:00:00+00:00"
+duration = "P31D"
+format = "json"
+time_zone = "cat"
+output_parameters = "ghi"
+
+headers = {
+    "Authorization":f"Bearer {key}"
+}
+
+url = f"https://api.solcast.com.au/data/historic/radiation_and_wwather?latitude={latitude}&longitude={longitude}&start={start}&duration={duration}&format={format}&time_zone={time_zone}&output_parameters={output_parameters}"
+response = requests.get(url, headers=headers)
+
+data = response.json()['estimated_actuals']
+pd.DataFrame(data)
 
 # Configure the page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
