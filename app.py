@@ -281,12 +281,23 @@ while True:
             
             # Only update battery gauge if SOC changed significantly
             if abs(soc - st.session_state.last_soc) > 1:
-                with battery_gauge_placeholder.container():
-                    st.plotly_chart(
+                st.plotly_chart(
                         create_battery_gauge(soc),
                         use_container_width=True
                     )
                 st.session_state.last_soc = soc
+
+            st.markdown(
+            f"""
+            <div style="padding: 10px; border-radius: 5px; margin-top: 10px; background-color: {'#fff0e6' if st.session_state.theme == 'light' else '#33261a'};">
+                <h3 style="margin:0;">🔋 Battery Info</h3>
+                <p style="margin:0;">Voltage: {battery_data["voltage"]:.1f}V</p>
+                <p style="margin:0;">Temperature: {battery_data["temperature"]:.1f}°C</p>
+                <p style="margin:0;">Current: {battery_data["current"]:.1f}A</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+            )
 
         # Section 3: Load Monitoring
         with col3:
@@ -325,11 +336,10 @@ while True:
             
             # Energy contribution
             st.subheader("Energy Source")
-            with energy_pie_placeholder.container():
-                st.plotly_chart(
-                    create_energy_pie(),
-                    use_container_width=True
-                )
+            st.plotly_chart(
+                create_energy_pie(),
+                use_container_width=True
+            )
 
         # Section 4: Real-time generation chart
         st.subheader("Live Power Generation")
