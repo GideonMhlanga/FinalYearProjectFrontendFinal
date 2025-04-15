@@ -56,7 +56,7 @@ with tab1:
     
     # Add solar power line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["solar_power"],
         name="Solar",
         line=dict(color="#FFD700", width=2),
@@ -66,7 +66,7 @@ with tab1:
     
     # Add wind power line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["wind_power"],
         name="Wind",
         line=dict(color="#4682B4", width=2),
@@ -76,7 +76,7 @@ with tab1:
     
     # Add total generation line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["total_generation"],
         name="Total",
         line=dict(color="#32CD32", width=3)
@@ -144,7 +144,7 @@ with tab2:
     
     # Add total generation line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["total_generation"],
         name="Generation",
         line=dict(color="#32CD32", width=2),
@@ -154,7 +154,7 @@ with tab2:
     
     # Add load line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["load"],
         name="Load",
         line=dict(color="#FF6347", width=2),
@@ -164,7 +164,7 @@ with tab2:
     
     # Add net power line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["net_power"],
         name="Net Power",
         line=dict(color="#9370DB", width=3)
@@ -261,7 +261,7 @@ with tab3:
     
     # Add SOC line
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["battery_soc"],
         name="State of Charge",
         line=dict(color="#4CAF50", width=3),
@@ -272,18 +272,18 @@ with tab3:
     # Add reference lines for SOC thresholds
     fig.add_shape(
         type="line",
-        x0=historical_data["timestamps"].iloc[0],
+        x0=historical_data["timestamp"].iloc[0],
         y0=20,
-        x1=historical_data["timestamps"].iloc[-1],
+        x1=historical_data["timestamp"].iloc[-1],
         y1=20,
         line=dict(color="red", width=2, dash="dash")
     )
     
     fig.add_shape(
         type="line",
-        x0=historical_data["timestamps"].iloc[0],
+        x0=historical_data["timestamp"].iloc[0],
         y0=80,
-        x1=historical_data["timestamps"].iloc[-1],
+        x1=historical_data["timestamp"].iloc[-1],
         y1=80,
         line=dict(color="green", width=2, dash="dash")
     )
@@ -324,7 +324,7 @@ with tab3:
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
-            x=historical_data["timestamps"],
+            x=historical_data["timestamp"],
             y=historical_data["battery_voltage"],
             name="Voltage",
             line=dict(color="#FF9800", width=2)
@@ -359,7 +359,7 @@ with tab3:
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
-            x=historical_data["timestamps"],
+            x=historical_data["timestamp"],
             y=historical_data["battery_temperature"],
             name="Temperature",
             line=dict(color="#E91E63", width=2)
@@ -408,7 +408,7 @@ with tab4:
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
-            x=historical_data["timestamps"],
+            x=historical_data["timestamp"],
             y=historical_data["irradiance"],
             name="Solar Irradiance",
             line=dict(color="#FFC107", width=2),
@@ -446,7 +446,7 @@ with tab4:
         fig = go.Figure()
         
         fig.add_trace(go.Scatter(
-            x=historical_data["timestamps"],
+            x=historical_data["timestamp"],
             y=historical_data["wind_speed"],
             name="Wind Speed",
             line=dict(color="#2196F3", width=2),
@@ -483,7 +483,7 @@ with tab4:
     fig = go.Figure()
     
     fig.add_trace(go.Scatter(
-        x=historical_data["timestamps"],
+        x=historical_data["timestamp"],
         y=historical_data["temperature"],
         name="Ambient Temperature",
         line=dict(color="#9C27B0", width=2)

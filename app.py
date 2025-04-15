@@ -45,9 +45,9 @@ if "last_soc" not in st.session_state:
     st.session_state.last_soc = 0
 
 # MQTT Callback
-def on_message(client, userdata, msg):
+def on_message(client, userdata, message):
     try:
-        payload = json.loads(msg.payload.decode())
+        payload = json.loads(message.payload.decode())
         current_time = datetime.now()
         
         # Update solar and load data
@@ -88,7 +88,7 @@ def on_message(client, userdata, msg):
         st.error(f"MQTT Data Error: {str(e)}")
 
 # Initialize MQTT Client
-client = mqtt.Client()
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.username_pw_set(HIVE_USER, HIVE_PASS)
 client.tls_set(cert_reqs=ssl.CERT_NONE)
 client.on_message = on_message
@@ -278,13 +278,14 @@ while True:
         with col2:
             st.subheader("Battery Status")
             soc = battery_data["soc"]
-            
-            # Only update battery gauge if SOC changed significantly
-            if abs(soc - st.session_state.last_soc) > 1:
+           
+            if abs(soc - st.session_state.last_soc)>1: 
+                fig = create_battery_gauge(soc)
                 st.plotly_chart(
-                        create_battery_gauge(soc),
-                        use_container_width=True
-                    )
+                        fig,
+                        use_container_width=True,
+                        key=f"battery_gauge_{time.time()}"
+                )
                 st.session_state.last_soc = soc
 
             st.markdown(
@@ -338,7 +339,8 @@ while True:
             st.subheader("Energy Source")
             st.plotly_chart(
                 create_energy_pie(),
-                use_container_width=True
+                use_container_width=True,
+                key=f"energy_pie_{time.time()}"
             )
 
         # Section 4: Real-time generation chart
@@ -347,7 +349,8 @@ while True:
             with live_chart_placeholder.container():
                 st.plotly_chart(
                     create_live_chart(),
-                    use_container_width=True
+                    use_container_width=True,
+                    key=f"live_chasrt_{time.time()}"
                 )
         else:
             st.info("Waiting for data... Chart will appear soon.")

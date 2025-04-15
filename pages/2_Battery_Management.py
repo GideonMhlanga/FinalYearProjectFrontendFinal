@@ -186,7 +186,7 @@ with col1:
         
         # Add current line
         fig.add_trace(go.Scatter(
-            x=historical_data["timestamps"],
+            x=historical_data["timestamp"],
             y=historical_data["battery_current"],
             name="Current",
             line=dict(color="#4CAF50", width=2),
@@ -197,9 +197,9 @@ with col1:
         # Add zero line for reference
         fig.add_shape(
             type="line",
-            x0=historical_data["timestamps"].iloc[0],
+            x0=historical_data["timestamp"].iloc[0],
             y0=0,
-            x1=historical_data["timestamps"].iloc[-1],
+            x1=historical_data["timestamp"].iloc[-1],
             y1=0,
             line=dict(color="gray", width=2, dash="dash")
         )
@@ -230,7 +230,7 @@ with col1:
         
         # Add annotations
         fig.add_annotation(
-            x=historical_data["timestamps"].iloc[len(historical_data) // 2],
+            x=historical_data["timestamp"].iloc[len(historical_data) // 2],
             y=2,
             text="Charging ↑",
             showarrow=False,
@@ -238,7 +238,7 @@ with col1:
         )
         
         fig.add_annotation(
-            x=historical_data["timestamps"].iloc[len(historical_data) // 2],
+            x=historical_data["timestamp"].iloc[len(historical_data) // 2],
             y=-2,
             text="Discharging ↓",
             showarrow=False,
@@ -465,7 +465,7 @@ with tab2:
             
             # Add SOC line
             fig.add_trace(go.Scatter(
-                x=historical_data["timestamps"],
+                x=historical_data["timestamp"],
                 y=historical_data["battery_soc"],
                 name="State of Charge",
                 line=dict(color="#4CAF50", width=2)
@@ -473,7 +473,7 @@ with tab2:
             
             # Add current line on secondary y-axis
             fig.add_trace(go.Scatter(
-                x=historical_data["timestamps"],
+                x=historical_data["timestamp"],
                 y=historical_data["battery_current"],
                 name="Current",
                 line=dict(color="#FF9800", width=2, dash="dot"),
@@ -482,7 +482,7 @@ with tab2:
             
             # Add cycle transition markers
             fig.add_trace(go.Scatter(
-                x=cycle_transitions["timestamps"],
+                x=cycle_transitions["timestamp"],
                 y=cycle_transitions["battery_soc"],
                 mode="markers",
                 marker=dict(size=10, color="red", symbol="circle"),
