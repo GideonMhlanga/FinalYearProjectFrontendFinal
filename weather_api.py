@@ -23,7 +23,7 @@ class ZimbabweWeatherAPI:
             "Chinhoyi": {"lat": -17.3671, "lon": 30.2059},
             "Masvingo": {"lat": -20.0624, "lon": 30.8277}
         }
-        self.default_location = "Harare"
+        self.default_location = "Bulawayo"
         
     def get_current_weather(self, location: str = None) -> Dict[str, Any]:
         """
