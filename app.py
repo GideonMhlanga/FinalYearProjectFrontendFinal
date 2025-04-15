@@ -39,11 +39,16 @@ if "mqtt_data" not in st.session_state:
     }
 if "historical_data" not in st.session_state:
     st.session_state.historical_data = pd.DataFrame(columns=["timestamp", "power"])
+if "theme" not in st.session_state:
+    st.session_state.theme = "light"
+if "last_soc" not in st.session_state:
+    st.session_state.last_soc = 0
 
 # MQTT Callback
 def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode())
+        current_time = datetime.now()
         
         # Update solar and load data
         st.session_state.sensor_data = {
@@ -69,6 +74,16 @@ def on_message(client, userdata, msg):
             st.session_state.mqtt_data["total_generation"] = solar_power + wind_power
             st.session_state.mqtt_data["net_power"] = (solar_power + wind_power) - load_power
             
+            # Update historical data
+            new_row = pd.DataFrame({
+                "timestamp": [current_time],
+                "power": [solar_power]
+            })
+            st.session_state.historical_data = pd.concat(
+                [st.session_state.historical_data, new_row],
+                ignore_index=True
+            ).tail(100)  # Keep last 100 readings
+            
     except Exception as e:
         st.error(f"MQTT Data Error: {str(e)}")
 
@@ -81,15 +96,9 @@ client.connect(HIVE_MQTT_BROKER, HIVE_MQTT_PORT, 60)
 client.subscribe(HIVE_MQTT_TOPIC, qos=1)
 client.loop_start()
 
-# (Login system, theme switching, battery/wind components preserved)
-
 from database import db
 from utils import format_power, get_status_color
 from welcome import show_landing_page
-
-# Initialize session state for theme
-if "theme" not in st.session_state:
-    st.session_state.theme = "light"
 
 # Theme switching functionality
 with st.sidebar:
@@ -107,13 +116,13 @@ if "user" not in st.session_state or st.session_state.user is None:
 # Main dashboard layout
 st.title("Hybrid Solar-Wind Monitoring Dashboard")
 
-# Real-time metrics placeholder
+# Create placeholders for dynamic components
 dashboard_placeholder = st.empty()
 battery_gauge_placeholder = st.empty()
 energy_pie_placeholder = st.empty()
 live_chart_placeholder = st.empty()
 
-# Battery and Wind monitoring (keep your original implementation)
+# Battery data initialization
 battery_data = {
     "soc": 65,  # Replace with real data when available
     "voltage": 12.6,
@@ -122,25 +131,103 @@ battery_data = {
     "cycle_count": 42
 }
 
-wind_data = {
-    "power": 450,  # Replace with real data when available
-    "speed": 8.2
-}
+def create_battery_gauge(soc):
+    soc_color = get_status_color(soc, {"green": (60, 100), "yellow": (20, 60), "red": (0, 20)})
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=soc,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "State of Charge"},
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1},
+            'bar': {'color': "green" if soc_color == "green" else "orange" if soc_color == "yellow" else "red"},
+            'steps': [
+                {'range': [0, 20], 'color': "#ffcccc"},
+                {'range': [20, 60], 'color': "#ffffcc"},
+                {'range': [60, 100], 'color': "#ccffcc"}
+            ],
+            'threshold': {
+                'line': {'color': "black", 'width': 4},
+                'thickness': 0.75,
+                'value': soc
+            }
+        }
+    ))
+    fig.update_layout(
+        height=250,
+        margin=dict(l=20, r=20, t=50, b=20),
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#262730" if st.session_state.theme == "light" else "#FAFAFA")
+    )
+    return fig
+
+def create_energy_pie():
+    solar_power = st.session_state.sensor_data["solar"]["power"]
+    wind_power = st.session_state.mqtt_data["wind_power"]
+    total = solar_power + wind_power
+    solar_percent = (solar_power / total * 100) if total > 0 else 100
+    wind_percent = (wind_power / total * 100) if total > 0 else 0
+    
+    fig = px.pie(
+        values=[solar_percent, wind_percent],
+        names=["Solar", "Wind"],
+        color_discrete_sequence=["#FFD700", "#4682B4"],
+        hole=0.4
+    )
+    fig.update_layout(
+        height=200,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="#262730" if st.session_state.theme == "light" else "#FAFAFA"),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=0)
+    )
+    return fig
+
+def create_live_chart():
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=st.session_state.historical_data["timestamp"],
+        y=st.session_state.historical_data["power"],
+        name="Solar",
+        line=dict(color="#FFD700", width=2),
+        fill="tozeroy",
+        fillcolor="rgba(255, 215, 0, 0.2)"
+    ))
+    fig.add_trace(go.Scatter(
+        x=st.session_state.historical_data["timestamp"],
+        y=st.session_state.historical_data["power"] * 0.7,
+        name="Load",
+        line=dict(color="#FF6347", width=2, dash="dot")
+    ))
+    fig.update_layout(
+        height=400,
+        xaxis_title="Time",
+        yaxis_title="Power (W)",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=60, r=20, t=30, b=60),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)' if st.session_state.theme == "dark" else 'rgba(240,242,246,0.5)',
+        font=dict(color="#262730" if st.session_state.theme == "light" else "#FAFAFA")
+    )
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(128,128,128,0.1)')
+    return fig
 
 while True:
-    with placeholder.container():
-        # Solar metrics from real data
+    with dashboard_placeholder.container():
         solar = st.session_state.sensor_data["solar"]
         load = st.session_state.sensor_data["load"]
         
         # Create main sections using columns
         col1, col2, col3 = st.columns([1, 1, 1])
 
-        # Section 1: Power Generation (Updated with real solar data)
+        # Section 1: Power Generation
         with col1:
             st.subheader("Power Generation")
             
-            # Solar card with real data
+            # Solar card
             solar_color = get_status_color(solar["power"], {"green": (2, float('inf')), "yellow": (0.5, 2), "red": (0, 0.5)})
             st.markdown(
                 f"""
@@ -155,10 +242,9 @@ while True:
                 unsafe_allow_html=True
             )
 
-              # Wind power card (placeholder - modify if you have wind data)
-            wind_power = st.session_state.mqtt_data.get("wind_power", 0)
+            # Wind power card
+            wind_power = st.session_state.mqtt_data["wind_power"]
             wind_color = get_status_color(wind_power, {"green": (2, float('inf')), "yellow": (0.5, 2), "red": (0, 0.5)})
-            
             st.markdown(
                 f"""
                 <div style="padding: 10px; border-radius: 5px; margin-top: 10px; background-color: {'#e6f2ff' if st.session_state.theme == 'light' else '#1a2833'};">
@@ -175,7 +261,6 @@ while True:
             # Total generation card
             total_power = st.session_state.mqtt_data["total_generation"]
             total_color = get_status_color(total_power, {"green": (4, float('inf')), "yellow": (1, 4), "red": (0, 1)})
-            
             st.markdown(
                 f"""
                 <div style="padding: 10px; border-radius: 5px; margin-top: 10px; background-color: {'#f0f0f0' if st.session_state.theme == 'light' else '#2d2d2d'};">
@@ -189,59 +274,21 @@ while True:
                 unsafe_allow_html=True
             )
 
-            #wind_color = get_status_color(wind_data["power"], {"green": (2, float('inf')), "yellow": (0.5, 2), "red": (0, 0.5)})
-            '''st.markdown(
-                f"""
-                <div style="padding: 10px; border-radius: 5px; margin-top: 10px; background-color: {'#e6f2ff' if st.session_state.theme == 'light' else '#1a2833'};">
-                    <h3 style="margin:0;">💨 Wind Power</h3>
-                    <h2 style="margin:0; color: {'green' if wind_color == 'green' else 'orange' if wind_color == 'yellow' else 'red'};">
-                        {format_power(wind_data["power"])}
-                    </h2>
-                    <p style="margin:0;">Wind Speed: {wind_data["speed"]:.1f} m/s</p>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )'''
-
-        # Section 2: Battery Status (Keep your original implementation)
+        # Section 2: Battery Status
         with col2:
             st.subheader("Battery Status")
             soc = battery_data["soc"]
-            soc_color = get_status_color(soc, {"green": (60, 100), "yellow": (20, 60), "red": (0, 20)})
             
-            #Create gauge chart for battery SOC
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=soc,
-                domain={'x': [0, 1], 'y': [0, 1]},
-                title={'text': "State of Charge"},
-                gauge={
-                    'axis': {'range': [0, 100], 'tickwidth': 1},
-                    'bar': {'color': "green" if soc_color == "green" else "orange" if soc_color == "yellow" else "red"},
-                    'steps': [
-                        {'range': [0, 20], 'color': "#ffcccc"},
-                        {'range': [20, 60], 'color': "#ffffcc"},
-                        {'range': [60, 100], 'color': "#ccffcc"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "black", 'width': 4},
-                        'thickness': 0.75,
-                        'value': soc
-                    }
-                }
-            ))
-            
-            fig.update_layout(
-                height=250,
-                margin=dict(l=20, r=20, t=50, b=20),
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color="#262730" if st.session_state.theme == "light" else "#FAFAFA")
-            )
-            
-            with battery_gauge_placeholder.container():
-                st.plotly_chart(fig, use_container_width=True)
+            # Only update battery gauge if SOC changed significantly
+            if abs(soc - st.session_state.last_soc) > 1:
+                with battery_gauge_placeholder.container():
+                    st.plotly_chart(
+                        create_battery_gauge(soc),
+                        use_container_width=True
+                    )
+                st.session_state.last_soc = soc
 
-        # Section 3: Load Monitoring (Updated with real data)
+        # Section 3: Load Monitoring
         with col3:
             st.subheader("Load Monitoring")
             load_color = get_status_color(load["power"], {"green": (0, 3), "yellow": (3, 6), "red": (6, float('inf'))})
@@ -259,11 +306,10 @@ while True:
                 unsafe_allow_html=True
             )
 
-            # Net power (generation - load)
+            # Net power
             net_power = st.session_state.mqtt_data["net_power"]
             net_status = "Surplus" if net_power > 0 else "Deficit"
             net_color = "green" if net_power > 0 else "red"
-            
             st.markdown(
                 f"""
                 <div style="padding: 10px; border-radius: 5px; margin-top: 10px; background-color: {'#e6ffe6' if net_power > 0 else '#ffe6e6'};">
@@ -279,88 +325,25 @@ while True:
             
             # Energy contribution
             st.subheader("Energy Source")
-            
-            # Create pie chart for energy sources (modify if you have wind data)
-            fig = px.pie(
-                values=[100, 0],  # 100% solar, 0% wind (adjust as needed)
-                names=["Solar", "Wind"],
-                color_discrete_sequence=["#FFD700", "#4682B4"],
-                hole=0.4
-            )
-            
-            fig.update_layout(
-                height=200,
-                margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color="#262730" if st.session_state.theme == "light" else "#FAFAFA"),
-                showlegend=True,
-                legend=dict(orientation="h", yanchor="bottom", y=0)
-            )
-            
             with energy_pie_placeholder.container():
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(
+                    create_energy_pie(),
+                    use_container_width=True
+                )
 
         # Section 4: Real-time generation chart
         st.subheader("Live Power Generation")
-
-        if hasattr(st.session_state, 'historical_data') and not st.session_state.historical_data.empty:
-            # Create time series plot for power generation
-            fig = go.Figure()
-            
-            # Add solar power line
-            fig.add_trace(go.Scatter(
-                x=st.session_state.historical_data["timestamp"],
-                y=st.session_state.historical_data["power"],
-                name="Solar",
-                line=dict(color="#FFD700", width=2),
-                fill="tozeroy",
-                fillcolor="rgba(255, 215, 0, 0.2)"
-            ))
-            
-            # Add load line (calculated as 70% of power)
-            fig.add_trace(go.Scatter(
-                x=st.session_state.historical_data["timestamp"],
-                y=st.session_state.historical_data["power"] * 0.7,
-                name="Load",
-                line=dict(color="#FF6347", width=2, dash="dot")
-            ))
-            
-            # Update layout
-            fig.update_layout(
-                height=400,
-                xaxis_title="Time",
-                yaxis_title="Power (W)",
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=60, r=20, t=30, b=60),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)' if st.session_state.theme == "dark" else 'rgba(240,242,246,0.5)',
-                font=dict(color="#262730" if st.session_state.theme == "light" else "#FAFAFA")
-            )
-            
-            # Add grid lines
-            fig.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.1)'
-            )
-            
-            fig.update_yaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(128,128,128,0.1)'
-            )
-            
+        if not st.session_state.historical_data.empty:
             with live_chart_placeholder.container():
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(
+                    create_live_chart(),
+                    use_container_width=True
+                )
         else:
             st.info("Waiting for data... Chart will appear soon.")
-        
-        while True:
-            with dashboard_placeholder.container():  # This replaces your existing placeholder
-        
-                # Footer information
-                st.divider()
-                st.caption("This dashboard provides real-time monitoring of the hybrid solar-wind power system. Navigate to other pages using the sidebar for more detailed information.")
 
-                time.sleep(1)
+        # Footer
+        st.divider()
+        st.caption("This dashboard provides real-time monitoring of the hybrid solar-wind power system.")
+
+    time.sleep(1)
